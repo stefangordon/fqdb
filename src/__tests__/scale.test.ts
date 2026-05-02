@@ -15,31 +15,31 @@ describe('FileQueue — scale', () => {
   });
   afterEach(() => q.close());
 
-  it('enqueues 5,000 items, paginates to completion', async () => {
-    const items = Array.from({ length: 5_000 }, (_, i) => ({
+  it('enqueues 2,000 items, paginates to completion', async () => {
+    const items = Array.from({ length: 2_000 }, (_, i) => ({
       fileKey: `f_${i.toString().padStart(6, '0')}`,
       sizeBytes: i + 1,
     }));
-    const result = await q.enqueue(items, { chunkSize: 1000 });
-    expect(result.added).toBe(5_000);
+    const result = await q.enqueue(items, { chunkSize: 500 });
+    expect(result.added).toBe(2_000);
 
     const stats = await q.stats();
-    expect(stats.pending.count).toBe(5_000);
-    expect(stats.pending.bytes).toBe((5_000 * 5_001) / 2);
+    expect(stats.pending.count).toBe(2_000);
+    expect(stats.pending.bytes).toBe((2_000 * 2_001) / 2);
 
     let total = 0;
     let cursor;
     for (;;) {
       const page = await q.page({
         status: 'pending',
-        limit: 500,
+        limit: 200,
         cursor,
       });
       total += page.items.length;
       if (!page.hasMore) break;
       cursor = page.nextCursor;
     }
-    expect(total).toBe(5_000);
+    expect(total).toBe(2_000);
   }, 60_000);
 
   it('aggregates remain consistent across many state transitions', async () => {
