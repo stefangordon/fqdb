@@ -127,6 +127,24 @@ describe('FileQueue — enqueue and stats', () => {
     expect((await q.stats()).pending.count).toBe(3);
   });
 
+  it('skipDuplicates dedups within a single enqueue call', async () => {
+    const result = await q.enqueue(
+      [
+        { fileKey: 'a', sizeBytes: 1 },
+        { fileKey: 'b', sizeBytes: 2 },
+        { fileKey: 'a', sizeBytes: 3 },
+        { fileKey: 'c', sizeBytes: 4 },
+        { fileKey: 'b', sizeBytes: 5 },
+      ],
+      { skipDuplicates: true },
+    );
+    expect(result.added).toBe(3);
+    expect(result.skipped).toBe(2);
+    const stats = await q.stats();
+    expect(stats.pending.count).toBe(3);
+    expect(stats.pending.bytes).toBe(1 + 2 + 4);
+  });
+
   it('count() and stats() are O(1) and consistent', async () => {
     await q.enqueue(makeItems(10, 100));
     expect(await q.count()).toBe(10);
@@ -308,6 +326,18 @@ describe('FileQueue — byte progress', () => {
     const got = await q.get(item!.id);
     expect(got!.bytesTransferred).toBe(got!.sizeBytes);
   });
+
+  it('aggregate.bytesTransferred follows item.bytesTransferred across all buckets', async () => {
+    const [a, b] = await q.claimNext(2);
+    await q.updateProgress(a!.id, 250_000);
+    await q.updateProgress(b!.id, 50_000);
+    await q.complete(a!.id);
+    await q.fail(b!.id, 'oops');
+    const stats = await q.stats();
+    expect(stats.completed.bytesTransferred).toBe(1_000_000);
+    expect(stats.failed.bytesTransferred).toBe(50_000);
+    expect(stats.started.bytesTransferred).toBe(0);
+  });
 });
 
 describe('FileQueue — recovery on writer election', () => {
@@ -327,6 +357,9 @@ describe('FileQueue — recovery on writer election', () => {
     expect(stats.started.count).toBe(0);
     expect(stats.pending.count).toBe(2);
     expect(stats.started.bytesTransferred).toBe(0);
+    // bytesTransferred follows the items: pending bucket gains 50 from the
+    // recovered started item; the other recovered item had 0 progress.
+    expect(stats.pending.bytesTransferred).toBe(50);
     const items = (await q2.page({ status: 'pending', limit: 10 })).items;
     expect(items.every((i) => i.attempts === 1)).toBe(true);
     expect(items.find((i) => i.fileKey === 'a')!.bytesTransferred).toBe(50);

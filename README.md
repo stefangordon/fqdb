@@ -1,5 +1,10 @@
 # fqdb
 
+[![npm](https://img.shields.io/npm/v/fqdb.svg?color=cb3837&logo=npm)](https://www.npmjs.com/package/fqdb)
+[![bundle size](https://img.shields.io/bundlephobia/minzip/fqdb?label=min%2Bgzip)](https://bundlephobia.com/package/fqdb)
+[![CI](https://github.com/stefangordon/fqdb/actions/workflows/ci.yml/badge.svg)](https://github.com/stefangordon/fqdb/actions/workflows/ci.yml)
+[![license](https://img.shields.io/npm/l/fqdb.svg)](./LICENSE)
+
 Persistent, indexed file queue for the browser. **IndexedDB** for storage,
 **Web Locks** for cross-tab single-writer election, **O(1) stats**.
 
@@ -10,8 +15,8 @@ need to survive page reloads, crashes, and multiple open tabs.
 - **Single-writer across tabs.** First tab to open the queue gets exclusive
   write access via the Web Locks API; other tabs are read-only and can detect
   it. Lock auto-releases when the writer tab closes.
-- **Scales to 10M+ items.** Keyset pagination, indexed status filters, O(1)
-  count and byte-total stats backed by a transactional aggregate store.
+- **Scales to millions of items.** Keyset pagination, indexed status filters,
+  O(1) count and byte-total stats backed by a transactional aggregate store.
 - **File-aware.** First-class `sizeBytes` and `bytesTransferred` fields with
   built-in totals per status (`bytes - bytesTransferred = remaining`).
 - **Zero runtime dependencies.** ~24 KB ESM. Works in any framework that runs
@@ -205,7 +210,7 @@ if (await isQueueLocked('downloads')) {
 - **Indexes** (5): `[status, id]`, `[status, sizeBytes]`, `[status, fileKey]`,
   `fileKey`, and `sizeBytes`. Status-filtered sorts use the compound indexes;
   global sorts use the single-field ones. The difference between a
-  millisecond filter and a full table scan at 10M rows.
+  millisecond filter and a full table scan at scale.
 
 For huge enqueue operations from a UI worker, consider running fqdb inside a
 **Web Worker** so the main thread isn't briefly stalled by transaction

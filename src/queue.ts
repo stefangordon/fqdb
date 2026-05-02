@@ -41,6 +41,7 @@ import type {
   Stats,
   Status,
 } from './types.js';
+import { STATUSES } from './types.js';
 
 const DEFAULT_PAGE_LIMIT = 100;
 const DEFAULT_BATCH_SIZE = 1000;
@@ -64,6 +65,12 @@ export class FileQueue {
   ) {
     db.onclose = (): void => {
       this.closed = true;
+      this.lockHandle.release();
+    };
+    // Another tab opening the DB with a higher version sends versionchange
+    // here. Close gracefully so the upgrade isn't blocked.
+    db.onversionchange = (): void => {
+      void this.close();
     };
   }
 
@@ -114,7 +121,12 @@ export class FileQueue {
     const queue = new FileQueue(name, db, lockHandle);
 
     if (lockHandle.isWriter && !opts.skipRecovery) {
-      await queue.recoverStarted();
+      try {
+        await queue.recoverStarted();
+      } catch (err) {
+        await queue.close();
+        throw err;
+      }
     }
 
     return queue;
@@ -212,7 +224,7 @@ export class FileQueue {
   }
 
   /**
-   * Read a page of items via keyset pagination. Scales to 10M+ items.
+   * Read a page of items via keyset pagination. Scales to millions of items.
    *
    * Default sort is `id` ascending (= insertion order, FIFO). All sort fields
    * (`id`, `sizeBytes`, `fileKey`) work both with and without a `status` filter.
@@ -365,6 +377,11 @@ export class FileQueue {
     let added = 0;
     let skipped = 0;
 
+    // When deduplicating, also drop within-input duplicates so that
+    // [{fileKey:'a'},{fileKey:'a'}] adds only one — even when neither is in
+    // the queue yet. The DB-level dedup check happens chunk by chunk below.
+    const seenFileKeys = skipDuplicates ? new Set<string>() : null;
+
     for (let offset = 0; offset < newItems.length; offset += chunkSize) {
       const chunk = newItems.slice(offset, offset + chunkSize);
       const tx = this.db.transaction([ITEMS, AGGREGATES], 'readwrite');
@@ -372,17 +389,40 @@ export class FileQueue {
       const aggs = tx.objectStore(AGGREGATES);
       const fileKeyIdx = items.index(IDX_FILEKEY);
 
-      // For throughput at 10M scale: issue all IDB requests up front on the
-      // same transaction (the IDB engine processes them in order without JS
-      // round-trips between them), then await results in a single Promise.all.
+      // For throughput at large input sizes: issue all IDB requests up front
+      // on the same transaction (the IDB engine processes them in order
+      // without JS round-trips between them), then await results in a single
+      // Promise.all.
 
       let dupMask: boolean[] = [];
-      if (skipDuplicates) {
-        const countReqs = chunk.map((it) => fileKeyIdx.count(it.fileKey));
-        const counts = await Promise.all(
-          countReqs.map((r) => reqToPromise<number>(r)),
+      if (skipDuplicates && seenFileKeys) {
+        // First pass: mark any fileKey we've already seen earlier in this
+        // enqueue call (within-input dedup). Walk in order so seenFileKeys
+        // grows as we go.
+        dupMask = new Array(chunk.length).fill(false) as boolean[];
+        for (let i = 0; i < chunk.length; i++) {
+          const fk = chunk[i]!.fileKey;
+          if (seenFileKeys.has(fk)) {
+            dupMask[i] = true;
+          } else {
+            seenFileKeys.add(fk);
+          }
+        }
+        // Second pass: for non-input-duplicates, check the DB. Issue all
+        // count requests on the same transaction so they batch.
+        const countReqs: (IDBRequest<number> | null)[] = chunk.map((it, i) =>
+          dupMask[i] ? null : fileKeyIdx.count(it.fileKey),
         );
-        dupMask = counts.map((c) => c > 0);
+        const counts = await Promise.all(
+          countReqs.map((r) =>
+            r === null ? Promise.resolve(0) : reqToPromise<number>(r),
+          ),
+        );
+        for (let i = 0; i < chunk.length; i++) {
+          if (!dupMask[i] && (counts[i] ?? 0) > 0) {
+            dupMask[i] = true;
+          }
+        }
         skipped += dupMask.filter(Boolean).length;
       }
 
@@ -468,9 +508,15 @@ export class FileQueue {
         'pending',
         -claimed.length,
         -claimedBytes,
-        0,
+        -claimedXfer,
       );
-      await applyDelta(aggs, 'started', claimed.length, claimedBytes, claimedXfer);
+      await applyDelta(
+        aggs,
+        'started',
+        claimed.length,
+        claimedBytes,
+        claimedXfer,
+      );
     }
 
     await txToPromise(tx);
@@ -516,9 +562,7 @@ export class FileQueue {
   async complete(id: number): Promise<void> {
     this.assertWriter();
     await this.transition(id, 'started', 'completed', (item) => {
-      const delta = item.sizeBytes - item.bytesTransferred;
       item.bytesTransferred = item.sizeBytes;
-      return { bytesTransferredDelta: delta, completed: true };
     });
   }
 
@@ -536,7 +580,6 @@ export class FileQueue {
     await this.transition(id, 'started', target, (item) => {
       item.error = error;
       if (opts.retry) item.attempts += 1;
-      return {};
     });
   }
 
@@ -581,7 +624,7 @@ export class FileQueue {
     for (const s of ['pending', 'started'] as const) {
       const d = fromDeltas[s];
       if (d.count > 0) {
-        await applyDelta(aggs, s, -d.count, -d.bytes, s === 'started' ? -d.xfer : 0);
+        await applyDelta(aggs, s, -d.count, -d.bytes, -d.xfer);
       }
     }
     if (cancelled > 0) {
@@ -601,14 +644,11 @@ export class FileQueue {
     const items = tx.objectStore(ITEMS);
     const aggs = tx.objectStore(AGGREGATES);
     let deleted = 0;
-    let bytes = 0;
-    let xfer = 0;
-    const xferStatuses: Status[] = ['started'];
 
     if (status === undefined) {
       const buckets = await readAllBuckets(aggs);
       await reqToPromise(items.clear());
-      for (const s of Object.keys(buckets) as Status[]) {
+      for (const s of STATUSES) {
         await applyDelta(
           aggs,
           s,
@@ -616,11 +656,11 @@ export class FileQueue {
           -buckets[s].bytes,
           -buckets[s].bytesTransferred,
         );
+        deleted += buckets[s].count;
       }
-      deleted = Object.values(buckets).reduce((n, b) => n + b.count, 0);
-      bytes = Object.values(buckets).reduce((n, b) => n + b.bytes, 0);
-      xfer = Object.values(buckets).reduce((n, b) => n + b.bytesTransferred, 0);
     } else {
+      let bytes = 0;
+      let xfer = 0;
       const idx = items.index(IDX_STATUS_ID);
       const range = IDBKeyRange.bound([status], [status, []], false, true);
       await new Promise<void>((resolve, reject) => {
@@ -641,8 +681,7 @@ export class FileQueue {
         };
       });
       if (deleted > 0) {
-        const xferDelta = xferStatuses.includes(status) ? -xfer : 0;
-        await applyDelta(aggs, status, -deleted, -bytes, xferDelta);
+        await applyDelta(aggs, status, -deleted, -bytes, -xfer);
       }
     }
     await txToPromise(tx);
@@ -657,10 +696,7 @@ export class FileQueue {
     id: number,
     from: Status,
     to: Status,
-    mutate: (item: QueueItem) => {
-      bytesTransferredDelta?: number;
-      completed?: boolean;
-    },
+    mutate: (item: QueueItem) => void,
   ): Promise<void> {
     const tx = this.db.transaction([ITEMS, AGGREGATES], 'readwrite');
     const items = tx.objectStore(ITEMS);
@@ -676,24 +712,16 @@ export class FileQueue {
     }
     const sizeBytes = item.sizeBytes;
     const xferBefore = item.bytesTransferred;
-    const result = mutate(item);
+    mutate(item);
     item.status = to;
     await reqToPromise(items.put(item));
 
-    // From-bucket loses one item (and its progress, if it was 'started').
-    await applyDelta(
-      aggs,
-      from,
-      -1,
-      -sizeBytes,
-      from === 'started' ? -xferBefore : 0,
-    );
-    // To-bucket gains one (with bytesTransferred only meaningful if it's 'started';
-    // for all other targets we don't track xfer, so contribute 0).
-    const xferToContribute = to === 'started' ? item.bytesTransferred : 0;
-    await applyDelta(aggs, to, 1, sizeBytes, xferToContribute);
+    // bucket.bytesTransferred invariant: sum of item.bytesTransferred for
+    // items in that bucket. So both from- and to-buckets are updated using
+    // the item's xfer value (pre-mutate for from, post-mutate for to).
+    await applyDelta(aggs, from, -1, -sizeBytes, -xferBefore);
+    await applyDelta(aggs, to, 1, sizeBytes, item.bytesTransferred);
 
-    void result;
     await txToPromise(tx);
   }
 
@@ -735,7 +763,7 @@ export class FileQueue {
 
     if (recovered > 0) {
       await applyDelta(aggs, 'started', -recovered, -bytes, -xfer);
-      await applyDelta(aggs, 'pending', recovered, bytes, 0);
+      await applyDelta(aggs, 'pending', recovered, bytes, xfer);
     }
 
     await txToPromise(tx);
