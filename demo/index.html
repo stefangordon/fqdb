@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>fqdb — persistent file queue</title>
+    <link rel="stylesheet" href="./src/style.css" />
+  </head>
+  <body>
+    <header>
+      <h1>fqdb</h1>
+      <p class="tagline">
+        Persistent, indexed file queue for the browser. IndexedDB +
+        Web&nbsp;Locks. Scales to 10M+ items.
+      </p>
+      <p class="links">
+        <a href="https://github.com/stefangordon/fqdb">GitHub</a> ·
+        <a href="https://www.npmjs.com/package/fqdb">npm</a>
+      </p>
+    </header>
+
+    <section class="status-bar" id="status-bar">
+      <span class="role" id="role-badge">…</span>
+      <span class="queue-name" id="queue-name"></span>
+      <span class="hint" id="role-hint"></span>
+    </section>
+
+    <main>
+      <section class="panel" id="panel-stats">
+        <header class="panel-header">
+          <h2>Stats</h2>
+          <button id="refresh-stats" class="secondary">Refresh</button>
+        </header>
+        <div class="stats-grid" id="stats-grid"></div>
+      </section>
+
+      <section class="panel" id="panel-generate">
+        <header class="panel-header">
+          <h2>Generate</h2>
+          <span class="hint">Add synthetic items to the queue</span>
+        </header>
+        <div class="row">
+          <div class="button-row" id="generate-buttons">
+            <button data-count="100">+ 100</button>
+            <button data-count="1000">+ 1,000</button>
+            <button data-count="10000">+ 10,000</button>
+            <button data-count="100000">+ 100,000</button>
+            <button data-count="1000000" class="warn">+ 1,000,000</button>
+          </div>
+          <label>
+            <input
+              type="number"
+              id="custom-count"
+              min="1"
+              step="1000"
+              placeholder="Custom count"
+            />
+            <button id="custom-add">Add custom</button>
+          </label>
+        </div>
+        <div class="progress" id="generate-progress" hidden>
+          <div class="progress-bar"><div class="progress-fill"></div></div>
+          <span class="progress-label"></span>
+        </div>
+
+        <header class="panel-header subhead">
+          <h3>Process</h3>
+          <span class="hint">Simulate a worker</span>
+        </header>
+        <div class="button-row">
+          <button id="claim-1">Claim 1 → started</button>
+          <button id="claim-10">Claim 10</button>
+          <button id="advance-progress">Advance progress</button>
+          <button id="complete-all-started">Complete all started</button>
+          <button id="fail-all-started" class="warn">
+            Fail all started
+          </button>
+          <button id="auto-toggle" class="primary">Auto-process: off</button>
+        </div>
+
+        <header class="panel-header subhead">
+          <h3>Clear</h3>
+        </header>
+        <div class="button-row">
+          <button id="clear-completed" class="secondary">
+            Clear completed
+          </button>
+          <button id="clear-failed" class="secondary">Clear failed</button>
+          <button id="clear-cancelled" class="secondary">
+            Clear cancelled
+          </button>
+          <button id="clear-all" class="danger">Clear everything</button>
+        </div>
+      </section>
+
+      <section class="panel" id="panel-browse">
+        <header class="panel-header">
+          <h2>Browse</h2>
+          <span class="hint">Keyset pagination — works at 10M items</span>
+        </header>
+
+        <div class="row controls">
+          <label>
+            Status
+            <select id="filter-status">
+              <option value="">all</option>
+              <option value="pending">pending</option>
+              <option value="started">started</option>
+              <option value="completed">completed</option>
+              <option value="failed">failed</option>
+              <option value="cancelled">cancelled</option>
+            </select>
+          </label>
+          <label>
+            Sort by
+            <select id="sort-field">
+              <option value="id">id (insertion order)</option>
+              <option value="sizeBytes">sizeBytes</option>
+              <option value="fileKey">fileKey</option>
+            </select>
+          </label>
+          <label>
+            Direction
+            <select id="sort-direction">
+              <option value="asc">ascending</option>
+              <option value="desc">descending</option>
+            </select>
+          </label>
+          <label>
+            Page size
+            <select id="page-size">
+              <option value="25">25</option>
+              <option value="50" selected>50</option>
+              <option value="100">100</option>
+              <option value="500">500</option>
+            </select>
+          </label>
+        </div>
+
+        <div class="table-wrap">
+          <table id="items-table">
+            <thead>
+              <tr>
+                <th>id</th>
+                <th>fileKey</th>
+                <th>status</th>
+                <th>sizeBytes</th>
+                <th>bytesTransferred</th>
+                <th>attempts</th>
+                <th>error</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+
+        <div class="pager">
+          <button id="page-first">« first</button>
+          <button id="page-prev">‹ prev</button>
+          <span id="page-label">page 1</span>
+          <button id="page-next">next ›</button>
+        </div>
+      </section>
+    </main>
+
+    <footer>
+      Built with
+      <a href="https://github.com/stefangordon/fqdb">fqdb</a>. MIT licensed.
+    </footer>
+
+    <script type="module" src="./src/main.ts"></script>
+  </body>
+</html>
