@@ -15,7 +15,7 @@ export default defineConfig({
   },
   resolve: {
     alias: {
-      fqdb: resolve(here, '..', 'src', 'index.ts'),
+      '@stefangordon/fqdb': resolve(here, '..', 'src', 'index.ts'),
     },
   },
   server: {

@@ -6,7 +6,7 @@ import {
   type SortField,
   type Status,
   type Stats,
-} from 'fqdb';
+} from '@stefangordon/fqdb';
 
 const QUEUE_NAME = 'demo-downloads';
 const PAGE_SIZE_DEFAULT = 50;

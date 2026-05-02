@@ -1,9 +1,9 @@
 # fqdb
 
-[![npm](https://img.shields.io/npm/v/fqdb.svg?color=cb3837&logo=npm)](https://www.npmjs.com/package/fqdb)
-[![bundle size](https://img.shields.io/bundlephobia/minzip/fqdb?label=min%2Bgzip)](https://bundlephobia.com/package/fqdb)
+[![npm](https://img.shields.io/npm/v/@stefangordon/fqdb.svg?color=cb3837&logo=npm)](https://www.npmjs.com/package/@stefangordon/fqdb)
+[![bundle size](https://img.shields.io/bundlephobia/minzip/@stefangordon/fqdb?label=min%2Bgzip)](https://bundlephobia.com/package/@stefangordon/fqdb)
 [![CI](https://github.com/stefangordon/fqdb/actions/workflows/ci.yml/badge.svg)](https://github.com/stefangordon/fqdb/actions/workflows/ci.yml)
-[![license](https://img.shields.io/npm/l/fqdb.svg)](./LICENSE)
+[![license](https://img.shields.io/npm/l/@stefangordon/fqdb.svg)](./LICENSE)
 
 Persistent, indexed file queue for the browser. **IndexedDB** for storage,
 **Web Locks** for cross-tab single-writer election, **O(1) stats**.
@@ -28,13 +28,13 @@ see writer/reader election in action.)
 ## Install
 
 ```bash
-npm install fqdb
+npm install @stefangordon/fqdb
 ```
 
 ## Quickstart
 
 ```typescript
-import { FileQueue, QueueLockedError } from 'fqdb';
+import { FileQueue, QueueLockedError } from '@stefangordon/fqdb';
 
 const queue = await FileQueue.open('downloads');
 
@@ -167,7 +167,7 @@ import {
   QueueLockedError,     // writer method called on reader
   QueueClosedError,     // any method called after close()
   ItemNotFoundError,    // unknown id
-} from 'fqdb';
+} from '@stefangordon/fqdb';
 ```
 
 ## How the cross-tab lock works
@@ -191,7 +191,7 @@ workers that support resumable transfers can use it as a resume offset.
 Disable with `{ skipRecovery: true }`.
 
 ```typescript
-import { isQueueLocked } from 'fqdb';
+import { isQueueLocked } from '@stefangordon/fqdb';
 
 if (await isQueueLocked('downloads')) {
   // Another tab is the writer. Wait for it to close, or open as a reader.

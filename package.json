@@ -1,5 +1,5 @@
 {
-  "name": "fqdb",
+  "name": "@stefangordon/fqdb",
   "version": "0.1.0",
   "description": "Persistent, indexed file queue for the browser. IndexedDB storage, Web Locks single-writer election, O(1) stats, scales to millions of items.",
   "keywords": [
