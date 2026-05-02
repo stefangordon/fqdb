@@ -179,20 +179,8 @@ async function refreshTable(): Promise<void> {
 
   const opts =
     status === undefined
-      ? { sortBy: 'id' as SortField, direction, limit, cursor: pageHistory[pageIdx] }
+      ? { sortBy, direction, limit, cursor: pageHistory[pageIdx] }
       : { status, sortBy, direction, limit, cursor: pageHistory[pageIdx] };
-
-  if (status === undefined && sortBy !== 'id') {
-    els.itemsTbody.innerHTML = `
-      <tr><td colspan="7" style="padding: 24px; text-align: center; color: var(--fg-muted)">
-        Sorting by ${sortBy} requires a status filter. Pick one above.
-      </td></tr>`;
-    els.pageLabel.textContent = '—';
-    els.pageNext.disabled = true;
-    els.pagePrev.disabled = true;
-    els.pageFirst.disabled = true;
-    return;
-  }
 
   const page = await queue.page(opts);
 

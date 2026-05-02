@@ -1,6 +1,7 @@
 import {
   AGGREGATES,
   IDX_FILEKEY,
+  IDX_SIZE,
   IDX_STATUS_ID,
   IDX_STATUS_KEY,
   IDX_STATUS_SIZE,
@@ -213,9 +214,8 @@ export class FileQueue {
   /**
    * Read a page of items via keyset pagination. Scales to 10M+ items.
    *
-   * Default sort is `id` ascending (= insertion order, FIFO). When `status` is
-   * omitted, only `sortBy: 'id'` is supported. With a `status` filter, you can
-   * sort by `id`, `sizeBytes`, or `fileKey`.
+   * Default sort is `id` ascending (= insertion order, FIFO). All sort fields
+   * (`id`, `sizeBytes`, `fileKey`) work both with and without a `status` filter.
    *
    * To page: pass the returned `nextCursor` to the next call.
    */
@@ -229,11 +229,6 @@ export class FileQueue {
       limit = DEFAULT_PAGE_LIMIT,
     } = opts;
 
-    if (status === undefined && sortBy !== 'id') {
-      throw new FqdbError(
-        `page(): when no status filter is given, sortBy must be 'id' (got '${sortBy}')`,
-      );
-    }
     if (limit <= 0) return { items: [], hasMore: false };
 
     const cursorDirection: IDBCursorDirection =
@@ -246,9 +241,13 @@ export class FileQueue {
       let lastKey: IDBValidKey | undefined;
       let lastPk: number | undefined;
       let firstSeek = false;
+      let usePrimaryKeyCursor = false;
       let cursorReq: IDBRequest<IDBCursorWithValue | null>;
 
-      if (status === undefined) {
+      if (status === undefined && sortBy === 'id') {
+        // Primary key cursor: range-filter past the last seen pk; no need
+        // for continuePrimaryKey because primary keys are unique.
+        usePrimaryKeyCursor = true;
         let range: IDBKeyRange | undefined;
         if (cursor) {
           range =
@@ -257,7 +256,14 @@ export class FileQueue {
               : IDBKeyRange.upperBound(cursor.primaryKey - 1);
         }
         cursorReq = items.openCursor(range, cursorDirection);
+      } else if (status === undefined) {
+        // Global sort by sizeBytes or fileKey.
+        const indexName = sortBy === 'sizeBytes' ? IDX_SIZE : IDX_FILEKEY;
+        const idx = items.index(indexName);
+        cursorReq = idx.openCursor(undefined, cursorDirection);
+        firstSeek = !!cursor;
       } else {
+        // Status-filtered sort.
         const indexName =
           sortBy === 'sizeBytes'
             ? IDX_STATUS_SIZE
@@ -299,7 +305,7 @@ export class FileQueue {
 
         const item = c.value as QueueItem;
         result.push(item);
-        lastKey = status === undefined ? item.id : c.key;
+        lastKey = usePrimaryKeyCursor ? item.id : c.key;
         lastPk = item.id;
         c.continue();
       };

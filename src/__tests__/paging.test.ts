@@ -82,8 +82,38 @@ describe('FileQueue — paging', () => {
     expect(keys).toEqual([...keys].sort());
   });
 
-  it('rejects sortBy != id when no status is given', async () => {
-    await expect(q.page({ sortBy: 'sizeBytes', limit: 10 })).rejects.toThrow();
+  it('global sort by sizeBytes (no status filter) is supported', async () => {
+    await q.claimNext(5);
+    const ascending: number[] = [];
+    let cursor;
+    for (;;) {
+      const page = await q.page({
+        sortBy: 'sizeBytes',
+        limit: 10,
+        cursor,
+      });
+      ascending.push(...page.items.map((i) => i.sizeBytes));
+      if (!page.hasMore) break;
+      cursor = page.nextCursor;
+    }
+    expect(ascending).toHaveLength(50);
+    for (let i = 1; i < ascending.length; i++) {
+      expect(ascending[i]!).toBeGreaterThanOrEqual(ascending[i - 1]!);
+    }
+  });
+
+  it('global sort by fileKey (no status filter) is supported', async () => {
+    await q.claimNext(5);
+    const all: string[] = [];
+    let cursor;
+    for (;;) {
+      const page = await q.page({ sortBy: 'fileKey', limit: 10, cursor });
+      all.push(...page.items.map((i) => i.fileKey));
+      if (!page.hasMore) break;
+      cursor = page.nextCursor;
+    }
+    expect(all).toHaveLength(50);
+    expect(all).toEqual([...all].sort());
   });
 
   it('without status filter, paging spans all statuses', async () => {

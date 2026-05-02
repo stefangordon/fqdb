@@ -134,8 +134,7 @@ const second = first.hasMore
   : null;
 ```
 
-When you omit `status`, only `sortBy: 'id'` is supported (insertion order).
-With a `status` filter you can sort by id, size, or fileKey, ascending or
+All sort fields work both with and without a `status` filter, ascending or
 descending.
 
 ### Writer methods
@@ -203,8 +202,9 @@ if (await isQueueLocked('downloads')) {
   updated transactionally with every mutation.
 - **`page()` uses keyset paging** via `IDBCursor.continuePrimaryKey`, so
   navigating to "page 50,000" is the same speed as navigating to page 2.
-- **Indexes** (4): `[status, id]`, `[status, sizeBytes]`, `[status, fileKey]`,
-  and `fileKey` (for dedup). Adding an index is the difference between a
+- **Indexes** (5): `[status, id]`, `[status, sizeBytes]`, `[status, fileKey]`,
+  `fileKey`, and `sizeBytes`. Status-filtered sorts use the compound indexes;
+  global sorts use the single-field ones. The difference between a
   millisecond filter and a full table scan at 10M rows.
 
 For huge enqueue operations from a UI worker, consider running fqdb inside a
